@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plinth — Vinyl Player</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  /* ─── RESET & BASE ─────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #e8e2d9;
+    --ink: #1a1a18;
+    --muted: #8a8678;
+    --accent: #c8503a;
+    --panel-bg: #ddd7cd;
+    --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'DM Mono', monospace;
+    overflow: hidden;
+  }
+
+  /* ─── AUTH SCREEN ───────────────────────────────────────── */
+  #auth-screen {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: var(--bg);
+    z-index: 100;
+    gap: 2rem;
+  }
+
+  #auth-screen h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: clamp(3rem, 6vw, 5rem);
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+
+  #auth-screen p {
+    color: var(--muted);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  #login-btn {
+    background: var(--ink);
+    color: var(--bg);
+    border: none;
+    padding: 1rem 2.5rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+  }
+
+  #login-btn::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: var(--accent);
+    transform: translateX(-100%);
+    transition: var(--transition);
+  }
+
+  #login-btn:hover::after { transform: translateX(0); }
+  #login-btn span { position: relative; z-index: 1; }
+
+  .auth-vinyl {
+    width: 180px; height: 180px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #3a3a38 0%, #1a1a18 40%, #2a2a28 41%, #1a1a18 60%, #2a2a28 61%, #1a1a18 100%);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    animation: spin-slow 8s linear infinite;
+    position: relative;
+  }
+
+  .auth-vinyl::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 40px; height: 40px;
+    background: #888;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: inset 0 0 8px rgba(0,0,0,0.5);
+  }
+
+  @keyframes spin-slow { to { transform: rotate(360deg); } }
+
+  /* ─── MAIN APP LAYOUT ───────────────────────────────────── */
+  #app {
+    display: none;
+    height: 100vh;
+  }
+
+  #app.visible {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    grid-template-rows: 56px 1fr;
+  }
+
+  /* ─── HEADER ────────────────────────────────────────────── */
+  #header {
+    grid-column: 1 / -1;
+    padding: 0 1.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(0,0,0,0.1);
+    background: rgba(232,226,217,0.95);
+    backdrop-filter: blur(12px);
+    z-index: 10;
+  }
+
+  #header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.4rem;
+    letter-spacing: -0.02em;
+  }
+
+  #user-info {
+    font-size: 0.68rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+  }
+
+  #status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #aaa;
+    transition: background 0.5s;
+    flex-shrink: 0;
+  }
+  #status-dot.ready { background: #5cb85c; box-shadow: 0 0 6px rgba(92,184,92,0.5); }
+
+  /* ─── SCENE ─────────────────────────────────────────────── */
+  #scene-container {
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  #canvas-wrap {
+    width: 100%; height: 100%;
+  }
+
+  /* Now playing overlay */
+  #now-playing {
+    position: absolute;
+    bottom: 2.2rem;
+    left: 2.2rem;
+    max-width: 300px;
+    pointer-events: none;
+  }
+
+  #now-playing .track-name {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.5rem;
+    line-height: 1.15;
+    color: var(--ink);
+    margin-bottom: 0.25rem;
+    text-shadow: 0 1px 12px rgba(232,226,217,0.8);
+  }
+
+  #now-playing .artist-name {
+    font-size: 0.68rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* Play/pause button */
+  #play-btn {
+    position: absolute;
+    bottom: 2.2rem;
+    right: 2.2rem;
+    width: 54px; height: 54px;
+    border-radius: 50%;
+    background: var(--ink);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.25s cubic-bezier(0.4,0,0.2,1), background 0.25s;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.25), 0 2px 6px rgba(0,0,0,0.15);
+    pointer-events: all;
+  }
+
+  #play-btn:hover {
+    transform: scale(1.1);
+    background: var(--accent);
+  }
+
+  #play-btn:active { transform: scale(0.96); }
+  #play-btn svg { fill: white; }
+
+  /* ─── ALBUM PANEL ───────────────────────────────────────── */
+  #album-panel {
+    background: var(--panel-bg);
+    border-left: 1px solid rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #panel-header {
+    padding: 1rem 1.4rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  #panel-header::before {
+    content: '';
+    display: inline-block;
+    width: 18px; height: 1px;
+    background: var(--muted);
+  }
+
+  #album-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  #album-grid::-webkit-scrollbar { width: 2px; }
+  #album-grid::-webkit-scrollbar-track { background: transparent; }
+  #album-grid::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 2px; }
+
+  .album-card {
+    aspect-ratio: 1;
+    position: relative;
+    cursor: pointer;
+    overflow: hidden;
+    outline: none;
+  }
+
+  .album-card img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    filter: brightness(0.95);
+  }
+
+  .album-card:hover img {
+    transform: scale(1.07);
+    filter: brightness(1);
+  }
+
+  .album-card .album-overlay {
+    position: absolute; inset: 0;
+    background: linear-gradient(to top, rgba(10,10,8,0.88) 0%, rgba(10,10,8,0.2) 60%, transparent 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 0.55rem 0.6rem;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .album-card:hover .album-overlay { opacity: 1; }
+
+  .album-card.active::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 2px solid var(--accent);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .album-card.active .album-overlay {
+    opacity: 1;
+    background: linear-gradient(to top, rgba(200,80,58,0.75) 0%, transparent 70%);
+  }
+
+  .album-overlay .a-name {
+    font-size: 0.58rem;
+    color: white;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+  }
+
+  .album-overlay .a-artist {
+    font-size: 0.52rem;
+    color: rgba(255,255,255,0.65);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Play indicator on active card */
+  .album-card.active .album-overlay::before {
+    content: '▶';
+    font-size: 0.5rem;
+    color: white;
+    margin-bottom: 0.2rem;
+    display: block;
+    opacity: 0.9;
+  }
+
+  /* Loading skeleton */
+  .skeleton {
+    background: linear-gradient(90deg, #cdc7be 25%, #bdb7ae 50%, #cdc7be 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+  }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  /* Toast */
+  #toast {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--ink);
+    color: var(--bg);
+    padding: 0.6rem 1.4rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 200;
+    pointer-events: none;
+    border-radius: 2px;
+  }
+
+  #toast.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- AUTH SCREEN                                                  -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="auth-screen">
+  <div class="auth-vinyl"></div>
+  <h1>Plinth</h1>
+  <p>A vinyl record player for Spotify</p>
+  <button id="login-btn"><span>Connect with Spotify</span></button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- MAIN APP                                                     -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="app">
+  <header id="header">
+    <h1>Plinth</h1>
+    <div id="user-info">
+      <span id="status-dot"></span>
+      <span id="user-name">Connecting…</span>
+    </div>
+  </header>
+
+  <!-- Three.js turntable scene -->
+  <div id="scene-container">
+    <div id="canvas-wrap"></div>
+    <div id="now-playing">
+      <div class="track-name" id="track-name">Select an album</div>
+      <div class="artist-name" id="artist-name">— —</div>
+    </div>
+    <button id="play-btn" title="Play / Pause">
+      <svg id="play-icon" width="20" height="20" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="pause-icon" width="20" height="20" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+    </button>
+  </div>
+
+  <!-- Album library panel -->
+  <div id="album-panel">
+    <div id="panel-header">Saved Albums</div>
+    <div id="album-grid"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- Three.js CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Spotify Web Playback SDK -->
+<script src="https://sdk.scdn.co/spotify-player.js"></script>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// ██████  AUTH — PKCE OAuth Flow  [UNTOUCHED]
+// ══════════════════════════════════════════════════════════════
+
+const SPOTIFY_CLIENT_ID = 'da4b6036031f4a8894a748518b802e6e';
+const REDIRECT_URI      = 'https://akhosla2004.github.io/plinth/';
+const SCOPES = [
+  'streaming',
+  'user-library-read',
+  'user-read-email',
+  'user-read-private',
+  'user-read-playback-state',
+  'user-modify-playback-state'
+].join(' ');
+
+function generateCodeVerifier(length = 128) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+  return Array.from(crypto.getRandomValues(new Uint8Array(length)))
+    .map(b => chars[b % chars.length]).join('');
+}
+
+async function generateCodeChallenge(verifier) {
+  const data = new TextEncoder().encode(verifier);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode(...new Uint8Array(hash)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function startLogin() {
+  const verifier = generateCodeVerifier();
+  const challenge = await generateCodeChallenge(verifier);
+  sessionStorage.setItem('pkce_verifier', verifier);
+
+  const params = new URLSearchParams({
+    client_id:             SPOTIFY_CLIENT_ID,
+    response_type:         'code',
+    redirect_uri:          REDIRECT_URI,
+    code_challenge_method: 'S256',
+    code_challenge:        challenge,
+    scope:                 SCOPES,
+    show_dialog:           'false'
+  });
+
+  window.location.href = `https://accounts.spotify.com/authorize?${params}`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// ██████  TOKEN MANAGEMENT  [UNTOUCHED]
+// ══════════════════════════════════════════════════════════════
+
+async function exchangeCodeForToken(code) {
+  const verifier = sessionStorage.getItem('pkce_verifier');
+  if (!verifier) throw new Error('No PKCE verifier in session');
+
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id:     SPOTIFY_CLIENT_ID,
+      grant_type:    'authorization_code',
+      code,
+      redirect_uri:  REDIRECT_URI,
+      code_verifier: verifier
+    })
+  });
+
+  if (!res.ok) throw new Error('Token exchange failed: ' + await res.text());
+  const data = await res.json();
+  storeTokens(data);
+  window.history.replaceState({}, '', REDIRECT_URI);
+  return data.access_token;
+}
+
+function storeTokens(data) {
+  sessionStorage.setItem('access_token',  data.access_token);
+  sessionStorage.setItem('refresh_token', data.refresh_token);
+  sessionStorage.setItem('token_expiry',  Date.now() + data.expires_in * 1000);
+}
+
+async function refreshAccessToken() {
+  const refreshToken = sessionStorage.getItem('refresh_token');
+  if (!refreshToken) throw new Error('No refresh token');
+
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id:     SPOTIFY_CLIENT_ID,
+      grant_type:    'refresh_token',
+      refresh_token: refreshToken
+    })
+  });
+
+  if (!res.ok) throw new Error('Token refresh failed');
+  const data = await res.json();
+  storeTokens(data);
+  return data.access_token;
+}
+
+async function getAccessToken() {
+  const expiry = parseInt(sessionStorage.getItem('token_expiry') || '0');
+  if (Date.now() > expiry - 60_000) {
+    return await refreshAccessToken();
+  }
+  return sessionStorage.getItem('access_token');
+}
+
+async function spotifyFetch(path, options = {}) {
+  const token = await getAccessToken();
+  const res = await fetch(`https://api.spotify.com/v1${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  });
+  if (!res.ok) throw new Error(`Spotify API error ${res.status} on ${path}`);
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+// ══════════════════════════════════════════════════════════════
+// ██████  SPOTIFY SDK  [UNTOUCHED]
+// ══════════════════════════════════════════════════════════════
+
+let player       = null;
+let deviceId     = null;
+let isPlaying    = false;
+let currentAlbum = null;
+
+window.onSpotifyWebPlaybackSDKReady = () => {
+  window._sdkReady = true;
+  if (window._tokenReady) initPlayer();
+};
+
+function initPlayer() {
+  player = new Spotify.Player({
+    name: 'Plinth Vinyl Player',
+    getOAuthToken: async cb => cb(await getAccessToken()),
+    volume: 0.8
+  });
+
+  player.addListener('ready', ({ device_id }) => {
+    deviceId = device_id;
+    console.log('Plinth: Player ready, device_id =', device_id);
+    document.getElementById('status-dot').classList.add('ready');
+    transferPlayback(device_id);
+  });
+
+  player.addListener('not_ready', ({ device_id }) => {
+    console.warn('Device went offline:', device_id);
+    document.getElementById('status-dot').classList.remove('ready');
+  });
+
+  player.addListener('player_state_changed', onPlayerStateChanged);
+
+  player.addListener('initialization_error', ({ message }) => showToast('Init error: ' + message));
+  player.addListener('authentication_error', ({ message }) => showToast('Auth error: ' + message));
+  player.addListener('account_error',        ({ message }) => showToast('Account error: ' + message));
+
+  player.connect().then(ok => {
+    if (!ok) showToast('Player connection failed');
+  });
+}
+
+async function transferPlayback(device_id) {
+  try {
+    await spotifyFetch('/me/player', {
+      method: 'PUT',
+      body: JSON.stringify({ device_ids: [device_id], play: false })
+    });
+  } catch (e) {
+    console.warn('transferPlayback error (may be harmless):', e);
+  }
+}
+
+function onPlayerStateChanged(state) {
+  if (!state) return;
+  isPlaying = !state.paused;
+  updatePlayButton();
+
+  const track = state.track_window?.current_track;
+  if (track) {
+    document.getElementById('track-name').textContent  = track.name;
+    document.getElementById('artist-name').textContent = track.artists.map(a => a.name).join(', ');
+
+    // ── ALBUM INTEGRATION: auto-update label from player_state_changed ──
+    // This fires on every track skip too, keeping the label current
+    const albumImg = track.album?.images?.[0]?.url;
+    if (albumImg) loadAlbumArtTexture(albumImg);
+  }
+}
+
+async function togglePlayback() {
+  if (!player) return;
+  await player.togglePlay();
+}
+
+async function playAlbum(contextUri, albumCover) {
+  if (!deviceId) { showToast('Player not ready yet'); return; }
+  try {
+    await spotifyFetch('/me/player/play', {
+      method: 'PUT',
+      body: JSON.stringify({ context_uri: contextUri, device_id: deviceId })
+    });
+    loadAlbumArtTexture(albumCover);
+  } catch (e) {
+    showToast('Playback error — check Spotify Premium');
+    console.error(e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// ██████  DATA FETCH — Saved Albums  [UNTOUCHED]
+// ══════════════════════════════════════════════════════════════
+
+async function loadSavedAlbums() {
+  const grid = document.getElementById('album-grid');
+
+  for (let i = 0; i < 12; i++) {
+    const sk = document.createElement('div');
+    sk.className = 'album-card skeleton';
+    sk.style.aspectRatio = '1';
+    grid.appendChild(sk);
+  }
+
+  try {
+    const data = await spotifyFetch('/me/albums?limit=12');
+    grid.innerHTML = '';
+    data.items.forEach(({ album }) => renderAlbumCard(album));
+  } catch (e) {
+    grid.innerHTML = `<p style="padding:1rem;font-size:0.7rem;color:var(--muted)">Could not load albums</p>`;
+    console.error(e);
+  }
+}
+
+function renderAlbumCard(album) {
+  const grid   = document.getElementById('album-grid');
+  const imgUrl = album.images[0]?.url || '';
+  const card   = document.createElement('div');
+  card.className = 'album-card';
+  card.dataset.uri = album.uri;
+
+  card.innerHTML = `
+    <img src="${imgUrl}" alt="${album.name}" loading="lazy">
+    <div class="album-overlay">
+      <div class="a-name">${album.name}</div>
+      <div class="a-artist">${album.artists[0]?.name}</div>
+    </div>
+  `;
+
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.album-card').forEach(c => c.classList.remove('active'));
+    card.classList.add('active');
+    currentAlbum = album;
+    playAlbum(album.uri, imgUrl);
+  });
+
+  grid.appendChild(card);
+}
+
+// ══════════════════════════════════════════════════════════════
+// ██████  THREE.JS SCENE — Premium Turntable  [UPGRADED]
+// ══════════════════════════════════════════════════════════════
+
+let scene, camera, renderer;
+let turntableGroup;   // entire turntable assembly
+let platGroup;        // platter + vinyl, rotates
+let vinylMesh;        // just the black disc
+let labelMesh;        // center label disc
+let tonearmGroup;     // tonearm pivots around its base
+let albumTexture = null;
+
+// Animation state
+let spinSpeed      = 0;
+const TARGET_SPEED = 0.006; // radians/frame at 33⅓ RPM feel
+
+// Tonearm animation
+let tonearmAngle        = 0;     // current Y rotation (radians)
+const ARM_PLAYING_ANGLE = -0.28; // rotated over record
+const ARM_RESTING_ANGLE = 0.42;  // lifted off record
+
+function initThree() {
+  const container = document.getElementById('canvas-wrap');
+  const W = container.clientWidth;
+  const H = container.clientHeight;
+
+  // ── Renderer ──────────────────────────────────────────────
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // Physical rendering pipeline
+  renderer.physicallyCorrectLights = true;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  container.appendChild(renderer.domElement);
+
+  // ── Scene + fog for depth ─────────────────────────────────
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xe8e2d9);
+  scene.fog = new THREE.Fog(0xe8e2d9, 18, 34);
+
+  // ── Camera — cinematic angle ──────────────────────────────
+  // Positioned above-right, looking down at platter
+  camera = new THREE.PerspectiveCamera(36, W / H, 0.1, 100);
+  camera.position.set(3.2, 6.5, 9.0);
+  camera.lookAt(0, 0.3, 0);
+
+  // ── Lighting ──────────────────────────────────────────────
+  // Soft ambient
+  const ambientLight = new THREE.AmbientLight(0xfff8f0, 1.8);
+  scene.add(ambientLight);
+
+  // Key light — strong directional from upper-left
+  const keyLight = new THREE.DirectionalLight(0xfff5e8, 4.5);
+  keyLight.position.set(-6, 12, 8);
+  keyLight.castShadow = true;
+  keyLight.shadow.mapSize.set(2048, 2048);
+  keyLight.shadow.camera.near = 0.5;
+  keyLight.shadow.camera.far  = 40;
+  keyLight.shadow.camera.left  = -8;
+  keyLight.shadow.camera.right =  8;
+  keyLight.shadow.camera.top   =  8;
+  keyLight.shadow.camera.bottom = -8;
+  keyLight.shadow.bias = -0.0005;
+  keyLight.shadow.radius = 3; // soft shadow blur
+  scene.add(keyLight);
+
+  // Fill light — cool blue-white from the right, very soft
+  const fillLight = new THREE.DirectionalLight(0xe8f0ff, 1.2);
+  fillLight.position.set(8, 4, -4);
+  scene.add(fillLight);
+
+  // Rim light — subtle warm from behind for edge separation
+  const rimLight = new THREE.DirectionalLight(0xffe8c8, 0.6);
+  rimLight.position.set(-2, 2, -10);
+  scene.add(rimLight);
+
+  // ── Build the turntable ───────────────────────────────────
+  turntableGroup = new THREE.Group();
+  scene.add(turntableGroup);
+
+  buildPlinthBase();
+  buildPlatter();
+  buildVinyl();
+  buildTonearm();
+  buildShadowPlane();
+
+  // Initial tonearm at rest
+  tonearmGroup.rotation.y = ARM_RESTING_ANGLE;
+
+  // ── Resize ────────────────────────────────────────────────
+  window.addEventListener('resize', () => {
+    const W2 = container.clientWidth;
+    const H2 = container.clientHeight;
+    camera.aspect = W2 / H2;
+    camera.updateProjectionMatrix();
+    renderer.setSize(W2, H2);
+  });
+
+  animate();
+}
+
+// ── Plinth base — thick matte rectangular body ────────────────
+function buildPlinthBase() {
+  // Main body
+  const bodyGeo = new THREE.BoxGeometry(7.2, 0.72, 6.2);
+
+  // Use a canvas to create a subtle wood-grain-like texture for the top
+  const matteCanvas = document.createElement('canvas');
+  matteCanvas.width = matteCanvas.height = 512;
+  const ctx = matteCanvas.getContext('2d');
+  ctx.fillStyle = '#2c2825';
+  ctx.fillRect(0, 0, 512, 512);
+  // subtle grain lines
+  for (let i = 0; i < 60; i++) {
+    const y = Math.random() * 512;
+    ctx.strokeStyle = `rgba(${40 + Math.random()*20},${35+Math.random()*15},${30+Math.random()*10},${0.08 + Math.random()*0.08})`;
+    ctx.lineWidth = 0.5 + Math.random() * 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, y + Math.random() * 20);
+    ctx.lineTo(512, y + Math.random() * 20);
+    ctx.stroke();
+  }
+  const bodyTex = new THREE.CanvasTexture(matteCanvas);
+  bodyTex.encoding = THREE.sRGBEncoding;
+
+  const bodyMat = new THREE.MeshStandardMaterial({
+    map: bodyTex,
+    roughness: 0.88,
+    metalness: 0.04,
+    color: 0x2c2825
+  });
+
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = -0.36;
+  body.receiveShadow = true;
+  body.castShadow    = true;
+  turntableGroup.add(body);
+
+  // ── Beveled edge strips (simulated via thin flat boxes) ───
+  const bevelMat = new THREE.MeshStandardMaterial({
+    color: 0x221f1c, roughness: 0.9, metalness: 0.0
+  });
+
+  // Front and back chamfer strips
+  [[-3.04, 0, 0], [3.04, 0, 0]].forEach(([x, y, z]) => {
+    const bev = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.78, 6.2), bevelMat);
+    bev.position.set(x, y - 0.36, z);
+    bev.castShadow = true;
+    turntableGroup.add(bev);
+  });
+  [[-3.04, 0, 3.1], [3.04, 0, -3.1], [-3.04, 0, -3.1], [3.04, 0, 3.1]].forEach(([x, y, z]) => {
+    const bev = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.78, 0.12), bevelMat);
+    bev.position.set(x, y - 0.36, z);
+    turntableGroup.add(bev);
+  });
+  [[0, 0, -3.04], [0, 0, 3.04]].forEach(([x, y, z]) => {
+    const bev = new THREE.Mesh(new THREE.BoxGeometry(7.44, 0.78, 0.12), bevelMat);
+    bev.position.set(x, y - 0.36, z);
+    bev.castShadow = true;
+    turntableGroup.add(bev);
+  });
+
+  // ── Rubber feet (4 small cylinders under corners) ─────────
+  const footMat = new THREE.MeshStandardMaterial({ color: 0x111110, roughness: 0.95 });
+  [[-2.8, 2.6], [2.8, 2.6], [-2.8, -2.6], [2.8, -2.6]].forEach(([x, z]) => {
+    const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.14, 24), footMat);
+    foot.position.set(x, -0.79, z);
+    turntableGroup.add(foot);
+  });
+}
+
+// ── Raised circular platter above plinth ─────────────────────
+function buildPlatter() {
+  platGroup = new THREE.Group();
+  platGroup.position.y = 0.12; // sits on top of plinth
+  turntableGroup.add(platGroup);
+
+  // Platter disc — silver-gray metal look
+  const platGeo = new THREE.CylinderGeometry(2.82, 2.74, 0.28, 128, 1);
+  const platMat = new THREE.MeshStandardMaterial({
+    color: 0x484440,
+    roughness: 0.45,
+    metalness: 0.55
+  });
+  const platter = new THREE.Mesh(platGeo, platMat);
+  platter.castShadow    = true;
+  platter.receiveShadow = true;
+  platGroup.add(platter);
+
+  // Spindle center post
+  const spindleGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.44, 24);
+  const spindleMat = new THREE.MeshStandardMaterial({
+    color: 0x888880,
+    roughness: 0.25,
+    metalness: 0.9
+  });
+  const spindle = new THREE.Mesh(spindleGeo, spindleMat);
+  spindle.position.y = 0.2;
+  platGroup.add(spindle);
+}
+
+// ── Vinyl record on the platter ───────────────────────────────
+function buildVinyl() {
+  // vinylGroup contains the disc and label; attached to platGroup so it rotates together
+  const vinylGroup = new THREE.Group();
+  vinylGroup.position.y = 0.15;
+  platGroup.add(vinylGroup);
+
+  // Store reference for rotation in animate()
+  platGroup._vinylGroup = vinylGroup;
+
+  // ── Groove texture via canvas ──────────────────────────────
+  // We draw concentric rings on a canvas and use it as a roughnessMap,
+  // which creates the iridescent groove shimmer without hundreds of meshes.
+  const gSize  = 1024;
+  const gCanvas = document.createElement('canvas');
+  gCanvas.width = gCanvas.height = gSize;
+  const gc = gCanvas.getContext('2d');
+
+  // Base: near-black
+  gc.fillStyle = '#111110';
+  gc.fillRect(0, 0, gSize, gSize);
+
+  // Concentric groove rings: draw alternating slight brightness bands
+  const cx = gSize / 2, cy = gSize / 2;
+  const innerR = gSize * 0.165; // label edge
+  const outerR = gSize * 0.488;
+  const step   = 3.5; // pixels between grooves
+
+  for (let r = innerR; r < outerR; r += step) {
+    const brightness = 14 + Math.sin(r * 0.18) * 5;
+    gc.strokeStyle = `rgb(${brightness},${brightness},${brightness - 1})`;
+    gc.lineWidth = step * 0.55;
+    gc.beginPath();
+    gc.arc(cx, cy, r, 0, Math.PI * 2);
+    gc.stroke();
+  }
+
+  // Runout groove (wider, smoother, inside the label boundary)
+  gc.strokeStyle = '#1a1a18';
+  gc.lineWidth = 6;
+  gc.beginPath();
+  gc.arc(cx, cy, innerR + 8, 0, Math.PI * 2);
+  gc.stroke();
+
+  const grooveMap = new THREE.CanvasTexture(gCanvas);
+  grooveMap.encoding = THREE.sRGBEncoding;
+
+  // Roughness map: make grooves slightly more reflective
+  const rCanvas = document.createElement('canvas');
+  rCanvas.width = rCanvas.height = 512;
+  const rc = rCanvas.getContext('2d');
+  rc.fillStyle = '#777777'; // base roughness gray
+  rc.fillRect(0, 0, 512, 512);
+  const rcx = 256, rcy = 256;
+  for (let r = 512 * 0.165; r < 512 * 0.49; r += 2) {
+    const v = Math.floor(100 + Math.sin(r * 0.35) * 30);
+    rc.strokeStyle = `rgb(${v},${v},${v})`;
+    rc.lineWidth = 1.5;
+    rc.beginPath();
+    rc.arc(rcx, rcy, r, 0, Math.PI * 2);
+    rc.stroke();
+  }
+  const roughMap = new THREE.CanvasTexture(rCanvas);
+
+  // Main disc geometry — thin cylinder
+  const discGeo = new THREE.CylinderGeometry(2.72, 2.72, 0.065, 128, 1);
+  const discMat = new THREE.MeshStandardMaterial({
+    map:          grooveMap,
+    roughnessMap: roughMap,
+    roughness:    0.32,
+    metalness:    0.08,
+    color:        0x181816
+  });
+  vinylMesh = new THREE.Mesh(discGeo, discMat);
+  vinylMesh.castShadow    = true;
+  vinylMesh.receiveShadow = true;
+  vinylGroup.add(vinylMesh);
+
+  // ── Center label disc ──────────────────────────────────────
+  const labelGeo = new THREE.CylinderGeometry(0.44, 0.44, 0.072, 64, 1);
+  const labelMat = new THREE.MeshStandardMaterial({
+    color:     0xcccccc,
+    roughness: 0.7,
+    metalness: 0.0
+  });
+  labelMesh = new THREE.Mesh(labelGeo, labelMat);
+  labelMesh.position.y = 0.003;
+  vinylGroup.add(labelMesh);
+
+  // ── Spindle hole (dark indent) ─────────────────────────────
+  const holeGeo = new THREE.CylinderGeometry(0.058, 0.058, 0.09, 32);
+  const holeMat = new THREE.MeshStandardMaterial({ color: 0x050504, roughness: 0.9 });
+  const hole    = new THREE.Mesh(holeGeo, holeMat);
+  hole.position.y = 0.003;
+  vinylGroup.add(hole);
+}
+
+// ── Tonearm ───────────────────────────────────────────────────
+function buildTonearm() {
+  tonearmGroup = new THREE.Group();
+  // Pivot point — rear right of the plinth
+  tonearmGroup.position.set(2.6, 0.42, -1.8);
+  turntableGroup.add(tonearmGroup);
+
+  const armMat = new THREE.MeshStandardMaterial({
+    color:     0xa8a8a4,
+    roughness: 0.18,
+    metalness: 0.82
+  });
+
+  const darkMat = new THREE.MeshStandardMaterial({
+    color:     0x2a2825,
+    roughness: 0.6,
+    metalness: 0.3
+  });
+
+  // ── Pivot base (cylindrical post) ─────────────────────────
+  const baseGeo = new THREE.CylinderGeometry(0.16, 0.19, 0.32, 24);
+  const base    = new THREE.Mesh(baseGeo, darkMat);
+  base.position.y = 0;
+  base.castShadow = true;
+  tonearmGroup.add(base);
+
+  // ── Pivot sphere cap ──────────────────────────────────────
+  const pivotGeo = new THREE.SphereGeometry(0.14, 20, 20);
+  const pivot    = new THREE.Mesh(pivotGeo, armMat);
+  pivot.position.y = 0.18;
+  pivot.castShadow = true;
+  tonearmGroup.add(pivot);
+
+  // ── Main arm (long tube, angled toward record) ─────────────
+  // The arm sweeps away from the pivot in local -Z direction
+  const armLength = 3.8;
+  const armGeo    = new THREE.CylinderGeometry(0.04, 0.055, armLength, 16);
+  const arm       = new THREE.Mesh(armGeo, armMat);
+  // Tilt arm slightly downward (X rotation) and angle it
+  arm.rotation.z = Math.PI / 2;
+  arm.position.set(-armLength / 2, 0.22, 0);
+  arm.castShadow = true;
+  tonearmGroup.add(arm);
+
+  // ── Headshell at the end of the arm ───────────────────────
+  const shellGeo  = new THREE.BoxGeometry(0.26, 0.09, 0.44);
+  const headshell = new THREE.Mesh(shellGeo, armMat);
+  headshell.position.set(-armLength - 0.05, 0.18, 0.08);
+  headshell.castShadow = true;
+  tonearmGroup.add(headshell);
+
+  // ── Stylus (tiny needle) ──────────────────────────────────
+  const needleGeo = new THREE.CylinderGeometry(0.012, 0.003, 0.22, 8);
+  const needleMat = new THREE.MeshStandardMaterial({
+    color: 0xc8c8c4, roughness: 0.1, metalness: 0.95
+  });
+  const needle    = new THREE.Mesh(needleGeo, needleMat);
+  needle.position.set(-armLength - 0.05, 0.06, 0.2);
+  needle.rotation.x = 0.3;
+  tonearmGroup.add(needle);
+
+  // ── Counterweight (cylinder at tail of arm) ────────────────
+  const cwGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.24, 20);
+  const cw    = new THREE.Mesh(cwGeo, darkMat);
+  cw.rotation.z = Math.PI / 2;
+  cw.position.set(0.56, 0.22, 0);
+  cw.castShadow = true;
+  tonearmGroup.add(cw);
+
+  // ── Cueing lever ──────────────────────────────────────────
+  const cueGeo = new THREE.BoxGeometry(0.06, 0.18, 0.06);
+  const cue    = new THREE.Mesh(cueGeo, darkMat);
+  cue.position.set(0.2, 0.1, 0.18);
+  tonearmGroup.add(cue);
+}
+
+// ── Shadow catch plane ────────────────────────────────────────
+function buildShadowPlane() {
+  const planeGeo = new THREE.PlaneGeometry(30, 30);
+  const planeMat = new THREE.ShadowMaterial({ opacity: 0.18 });
+  const plane    = new THREE.Mesh(planeGeo, planeMat);
+  plane.rotation.x = -Math.PI / 2;
+  plane.position.y = -0.72;
+  plane.receiveShadow = true;
+  turntableGroup.add(plane);
+}
+
+// ── Album art texture loader ──────────────────────────────────
+function loadAlbumArtTexture(imageUrl) {
+  const loader = new THREE.TextureLoader();
+  loader.crossOrigin = 'anonymous';
+  loader.load(imageUrl, texture => {
+    texture.encoding = THREE.sRGBEncoding;
+    albumTexture = texture;
+    labelMesh.material.map   = texture;
+    labelMesh.material.color.set(0xffffff);
+    labelMesh.material.roughness = 0.55;
+    labelMesh.material.needsUpdate = true;
+  }, undefined, err => {
+    console.warn('Texture load failed:', err);
+  });
+}
+
+// ── Animation loop ────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+
+  // ── Vinyl spin: smooth ease in / coast to stop ────────────
+  const targetSpeed = isPlaying ? TARGET_SPEED : 0;
+  spinSpeed += (targetSpeed - spinSpeed) * 0.028;
+  if (platGroup._vinylGroup) {
+    platGroup._vinylGroup.rotation.y += spinSpeed;
+  }
+
+  // ── Tonearm: lower to record when playing, lift when paused ─
+  const armTarget = isPlaying ? ARM_PLAYING_ANGLE : ARM_RESTING_ANGLE;
+  tonearmGroup.rotation.y += (armTarget - tonearmGroup.rotation.y) * 0.025;
+
+  // Subtle tonearm height animation (lowers when playing)
+  const armTargetY = isPlaying ? 0.32 : 0.42;
+  tonearmGroup.position.y += (armTargetY - tonearmGroup.position.y) * 0.025;
+
+  renderer.render(scene, camera);
+}
+
+// ══════════════════════════════════════════════════════════════
+// ██████  UI INTERACTION
+// ══════════════════════════════════════════════════════════════
+
+function updatePlayButton() {
+  document.getElementById('play-icon').style.display  = isPlaying ? 'none'  : 'block';
+  document.getElementById('pause-icon').style.display = isPlaying ? 'block' : 'none';
+}
+
+function showToast(msg, duration = 3000) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+
+// Clicking the 3D canvas toggles play/pause
+document.getElementById('scene-container').addEventListener('click', (e) => {
+  if (e.target.closest('#play-btn')) return;
+  togglePlayback();
+});
+
+document.getElementById('play-btn').addEventListener('click', togglePlayback);
+document.getElementById('login-btn').addEventListener('click', startLogin);
+
+// ══════════════════════════════════════════════════════════════
+// ██████  APP INIT — Entry Point
+// ══════════════════════════════════════════════════════════════
+
+async function initApp(accessToken) {
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app').classList.add('visible');
+
+  try {
+    const me = await spotifyFetch('/me');
+    document.getElementById('user-name').textContent = me.display_name || me.id;
+  } catch(e) {}
+
+  // Defer Three.js init one frame so the layout paints first
+  requestAnimationFrame(() => {
+    initThree();
+  });
+
+  loadSavedAlbums();
+
+  window._tokenReady = true;
+  if (window._sdkReady) initPlayer();
+}
+
+// ── OAuth callback / session bootstrap ──
+(async function bootstrap() {
+  const params = new URLSearchParams(window.location.search);
+  const code   = params.get('code');
+  const error  = params.get('error');
+
+  if (error) {
+    showToast('Spotify auth denied: ' + error);
+    return;
+  }
+
+  if (code) {
+    try {
+      const token = await exchangeCodeForToken(code);
+      await initApp(token);
+    } catch (e) {
+      console.error(e);
+      showToast('Login failed — try again');
+    }
+    return;
+  }
+
+  const existingToken  = sessionStorage.getItem('access_token');
+  const existingExpiry = parseInt(sessionStorage.getItem('token_expiry') || '0');
+
+  if (existingToken && Date.now() < existingExpiry) {
+    await initApp(existingToken);
+    return;
+  }
+
+  if (sessionStorage.getItem('refresh_token')) {
+    try {
+      const token = await refreshAccessToken();
+      await initApp(token);
+      return;
+    } catch(e) {
+      console.warn('Silent refresh failed, showing login');
+    }
+  }
+
+  // Show login screen (already visible by default)
+})();
+</script>
+</body>
+</html>
