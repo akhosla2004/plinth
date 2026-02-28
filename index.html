@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plinth — Vinyl Player</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  /* ─── RESET & BASE ─────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f5f0e8;
+    --ink: #1a1a18;
+    --muted: #8a8678;
+    --accent: #c8503a;
+    --groove: #2a2a28;
+    --card-bg: #ffffff;
+    --card-shadow: 0 2px 20px rgba(0,0,0,0.08);
+    --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'DM Mono', monospace;
+    overflow: hidden;
+  }
+
+  /* ─── AUTH SCREEN ───────────────────────────────────────── */
+  #auth-screen {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: var(--bg);
+    z-index: 100;
+    gap: 2rem;
+  }
+
+  #auth-screen h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: clamp(3rem, 6vw, 5rem);
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+
+  #auth-screen p {
+    color: var(--muted);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  #login-btn {
+    background: var(--ink);
+    color: var(--bg);
+    border: none;
+    padding: 1rem 2.5rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+  }
+
+  #login-btn::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: var(--accent);
+    transform: translateX(-100%);
+    transition: var(--transition);
+  }
+
+  #login-btn:hover::after { transform: translateX(0); }
+  #login-btn span { position: relative; z-index: 1; }
+
+  /* decorative vinyl on auth screen */
+  .auth-vinyl {
+    width: 180px; height: 180px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #3a3a38 0%, #1a1a18 40%, #2a2a28 41%, #1a1a18 60%, #2a2a28 61%, #1a1a18 100%);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    animation: spin-slow 8s linear infinite;
+    position: relative;
+  }
+
+  .auth-vinyl::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 40px; height: 40px;
+    background: #888;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: inset 0 0 8px rgba(0,0,0,0.5);
+  }
+
+  @keyframes spin-slow { to { transform: rotate(360deg); } }
+
+  /* ─── MAIN APP LAYOUT ───────────────────────────────────── */
+  #app {
+    display: none;
+    height: 100vh;
+    display: none;
+    grid-template-columns: 1fr 380px;
+    grid-template-rows: auto 1fr;
+  }
+
+  #app.visible {
+    display: grid;
+  }
+
+  /* Header */
+  #header {
+    grid-column: 1 / -1;
+    padding: 1.5rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+  }
+
+  #header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.6rem;
+    letter-spacing: -0.02em;
+  }
+
+  #user-info {
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  #status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #aaa;
+    transition: background 0.5s;
+  }
+  #status-dot.ready { background: #5cb85c; }
+
+  /* Scene container */
+  #scene-container {
+    position: relative;
+    overflow: hidden;
+    background: #f5f0e8;
+    cursor: pointer;
+  }
+
+  #canvas-wrap {
+    width: 100%; height: 100%;
+  }
+
+  /* Now playing overlay */
+  #now-playing {
+    position: absolute;
+    bottom: 2rem; left: 2rem;
+    max-width: 280px;
+  }
+
+  #now-playing .track-name {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.4rem;
+    line-height: 1.2;
+    color: var(--ink);
+    margin-bottom: 0.3rem;
+  }
+
+  #now-playing .artist-name {
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Play/pause button */
+  #play-btn {
+    position: absolute;
+    bottom: 2rem; right: 2rem;
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: var(--ink);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  }
+
+  #play-btn:hover { transform: scale(1.08); background: var(--accent); }
+  #play-btn svg { fill: white; }
+
+  /* ─── ALBUM GRID ────────────────────────────────────────── */
+  #album-panel {
+    background: #ede8df;
+    border-left: 1px solid rgba(0,0,0,0.08);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #panel-header {
+    padding: 1.2rem 1.5rem;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+    flex-shrink: 0;
+  }
+
+  #album-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  #album-grid::-webkit-scrollbar { width: 3px; }
+  #album-grid::-webkit-scrollbar-track { background: transparent; }
+  #album-grid::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
+
+  .album-card {
+    aspect-ratio: 1;
+    position: relative;
+    cursor: pointer;
+    overflow: hidden;
+    border: 1px solid rgba(0,0,0,0.06);
+  }
+
+  .album-card img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .album-card:hover img { transform: scale(1.05); }
+
+  .album-card .album-overlay {
+    position: absolute; inset: 0;
+    background: rgba(26,26,24,0.7);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 0.6rem;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .album-card:hover .album-overlay,
+  .album-card.active .album-overlay { opacity: 1; }
+  .album-card.active .album-overlay { background: rgba(200,80,58,0.8); }
+
+  .album-overlay .a-name {
+    font-size: 0.6rem;
+    color: white;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .album-overlay .a-artist {
+    font-size: 0.55rem;
+    color: rgba(255,255,255,0.7);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Loading skeleton */
+  .skeleton {
+    background: linear-gradient(90deg, #e0d9cf 25%, #d0c9bf 50%, #e0d9cf 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+  }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  /* Toast */
+  #toast {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--ink);
+    color: var(--bg);
+    padding: 0.6rem 1.2rem;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 200;
+    pointer-events: none;
+  }
+
+  #toast.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- AUTH SCREEN                                                  -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="auth-screen">
+  <div class="auth-vinyl"></div>
+  <h1>Plinth</h1>
+  <p>A vinyl record player for Spotify</p>
+  <button id="login-btn"><span>Connect with Spotify</span></button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- MAIN APP                                                     -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="app">
+  <header id="header">
+    <h1>Plinth</h1>
+    <div id="user-info">
+      <span id="status-dot"></span>
+      <span id="user-name">Connecting…</span>
+    </div>
+  </header>
+
+  <!-- Three.js vinyl scene -->
+  <div id="scene-container">
+    <div id="canvas-wrap"></div>
+    <div id="now-playing">
+      <div class="track-name" id="track-name">Select an album</div>
+      <div class="artist-name" id="artist-name">— —</div>
+    </div>
+    <button id="play-btn" title="Play / Pause">
+      <svg id="play-icon" width="20" height="20" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="pause-icon" width="20" height="20" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+    </button>
+  </div>
+
+  <!-- Album library panel -->
+  <div id="album-panel">
+    <div id="panel-header">Your Library — Saved Albums</div>
+    <div id="album-grid"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- Three.js CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Spotify Web Playback SDK -->
+<script src="https://sdk.scdn.co/spotify-player.js"></script>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// ██████  AUTH — PKCE OAuth Flow
+// ══════════════════════════════════════════════════════════════
+
+const SPOTIFY_CLIENT_ID = 'da4b6036031f4a8894a748518b802e6e';
+const REDIRECT_URI      = 'https://akhosla2004.github.io/plinth/';
+const SCOPES = [
+  'streaming',
+  'user-library-read',
+  'user-read-email',
+  'user-read-private',
+  'user-read-playback-state',
+  'user-modify-playback-state'
+].join(' ');
+
+// Generate a random string for PKCE code verifier
+function generateCodeVerifier(length = 128) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+  return Array.from(crypto.getRandomValues(new Uint8Array(length)))
+    .map(b => chars[b % chars.length]).join('');
+}
+
+// SHA-256 hash for code challenge
+async function generateCodeChallenge(verifier) {
+  const data = new TextEncoder().encode(verifier);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode(...new Uint8Array(hash)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// Kick off PKCE login redirect
+async function startLogin() {
+  const verifier = generateCodeVerifier();
+  const challenge = await generateCodeChallenge(verifier);
+  sessionStorage.setItem('pkce_verifier', verifier);
+
+  const params = new URLSearchParams({
+    client_id:             SPOTIFY_CLIENT_ID,
+    response_type:         'code',
+    redirect_uri:          REDIRECT_URI,
+    code_challenge_method: 'S256',
+    code_challenge:        challenge,
+    scope:                 SCOPES,
+    show_dialog:           'false'
+  });
+
+  window.location.href = `https://accounts.spotify.com/authorize?${params}`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// ██████  TOKEN MANAGEMENT
+// ══════════════════════════════════════════════════════════════
+
+async function exchangeCodeForToken(code) {
+  const verifier = sessionStorage.getItem('pkce_verifier');
+  if (!verifier) throw new Error('No PKCE verifier in session');
+
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id:     SPOTIFY_CLIENT_ID,
+      grant_type:    'authorization_code',
+      code,
+      redirect_uri:  REDIRECT_URI,
+      code_verifier: verifier
+    })
+  });
+
+  if (!res.ok) throw new Error('Token exchange failed: ' + await res.text());
+  const data = await res.json();
+  storeTokens(data);
+  // Clean the URL so code can't be reused
+  window.history.replaceState({}, '', REDIRECT_URI);
+  return data.access_token;
+}
+
+function storeTokens(data) {
+  sessionStorage.setItem('access_token',  data.access_token);
+  sessionStorage.setItem('refresh_token', data.refresh_token);
+  sessionStorage.setItem('token_expiry',  Date.now() + data.expires_in * 1000);
+}
+
+async function refreshAccessToken() {
+  const refreshToken = sessionStorage.getItem('refresh_token');
+  if (!refreshToken) throw new Error('No refresh token');
+
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id:     SPOTIFY_CLIENT_ID,
+      grant_type:    'refresh_token',
+      refresh_token: refreshToken
+    })
+  });
+
+  if (!res.ok) throw new Error('Token refresh failed');
+  const data = await res.json();
+  storeTokens(data);
+  return data.access_token;
+}
+
+// Returns valid access token, refreshing if near expiry
+async function getAccessToken() {
+  const expiry = parseInt(sessionStorage.getItem('token_expiry') || '0');
+  if (Date.now() > expiry - 60_000) {
+    return await refreshAccessToken();
+  }
+  return sessionStorage.getItem('access_token');
+}
+
+// Authenticated fetch helper
+async function spotifyFetch(path, options = {}) {
+  const token = await getAccessToken();
+  const res = await fetch(`https://api.spotify.com/v1${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  });
+  if (!res.ok) throw new Error(`Spotify API error ${res.status} on ${path}`);
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+// ══════════════════════════════════════════════════════════════
+// ██████  SPOTIFY SDK
+// ══════════════════════════════════════════════════════════════
+
+let player       = null;
+let deviceId     = null;
+let isPlaying    = false;
+let currentAlbum = null;
+
+// Spotify SDK calls this when ready
+window.onSpotifyWebPlaybackSDKReady = () => {
+  // SDK is loaded, but we init the player only after we have a token
+  window._sdkReady = true;
+  if (window._tokenReady) initPlayer();
+};
+
+function initPlayer() {
+  player = new Spotify.Player({
+    name: 'Plinth Vinyl Player',
+    getOAuthToken: async cb => cb(await getAccessToken()),
+    volume: 0.8
+  });
+
+  // SDK event listeners
+  player.addListener('ready', ({ device_id }) => {
+    deviceId = device_id;
+    console.log('Plinth: Player ready, device_id =', device_id);
+    document.getElementById('status-dot').classList.add('ready');
+    // Transfer playback to this browser device
+    transferPlayback(device_id);
+  });
+
+  player.addListener('not_ready', ({ device_id }) => {
+    console.warn('Device went offline:', device_id);
+    document.getElementById('status-dot').classList.remove('ready');
+  });
+
+  player.addListener('player_state_changed', onPlayerStateChanged);
+
+  player.addListener('initialization_error', ({ message }) => showToast('Init error: ' + message));
+  player.addListener('authentication_error', ({ message }) => showToast('Auth error: ' + message));
+  player.addListener('account_error',        ({ message }) => showToast('Account error: ' + message));
+
+  player.connect().then(ok => {
+    if (!ok) showToast('Player connection failed');
+  });
+}
+
+async function transferPlayback(device_id) {
+  try {
+    await spotifyFetch('/me/player', {
+      method: 'PUT',
+      body: JSON.stringify({ device_ids: [device_id], play: false })
+    });
+  } catch (e) {
+    console.warn('transferPlayback error (may be harmless):', e);
+  }
+}
+
+function onPlayerStateChanged(state) {
+  if (!state) return;
+  isPlaying = !state.paused;
+  updatePlayButton();
+
+  // Update now-playing info
+  const track = state.track_window?.current_track;
+  if (track) {
+    document.getElementById('track-name').textContent  = track.name;
+    document.getElementById('artist-name').textContent = track.artists.map(a => a.name).join(', ');
+  }
+}
+
+async function togglePlayback() {
+  if (!player) return;
+  await player.togglePlay();
+}
+
+async function playAlbum(contextUri, albumCover) {
+  if (!deviceId) { showToast('Player not ready yet'); return; }
+  try {
+    await spotifyFetch('/me/player/play', {
+      method: 'PUT',
+      body: JSON.stringify({ context_uri: contextUri, device_id: deviceId })
+    });
+    // Update the vinyl label texture with album art
+    loadAlbumArtTexture(albumCover);
+  } catch (e) {
+    showToast('Playback error — check Spotify Premium');
+    console.error(e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// ██████  DATA FETCH — Saved Albums
+// ══════════════════════════════════════════════════════════════
+
+async function loadSavedAlbums() {
+  const grid = document.getElementById('album-grid');
+
+  // Show skeletons while loading
+  for (let i = 0; i < 12; i++) {
+    const sk = document.createElement('div');
+    sk.className = 'album-card skeleton';
+    sk.style.aspectRatio = '1';
+    grid.appendChild(sk);
+  }
+
+  try {
+    const data = await spotifyFetch('/me/albums?limit=12');
+    grid.innerHTML = '';
+    data.items.forEach(({ album }) => renderAlbumCard(album));
+  } catch (e) {
+    grid.innerHTML = `<p style="padding:1rem;font-size:0.7rem;color:var(--muted)">Could not load albums</p>`;
+    console.error(e);
+  }
+}
+
+function renderAlbumCard(album) {
+  const grid   = document.getElementById('album-grid');
+  const imgUrl = album.images[0]?.url || '';
+  const card   = document.createElement('div');
+  card.className = 'album-card';
+  card.dataset.uri = album.uri;
+
+  card.innerHTML = `
+    <img src="${imgUrl}" alt="${album.name}" loading="lazy">
+    <div class="album-overlay">
+      <div class="a-name">${album.name}</div>
+      <div class="a-artist">${album.artists[0]?.name}</div>
+    </div>
+  `;
+
+  card.addEventListener('click', () => {
+    // Mark active
+    document.querySelectorAll('.album-card').forEach(c => c.classList.remove('active'));
+    card.classList.add('active');
+    currentAlbum = album;
+    playAlbum(album.uri, imgUrl);
+  });
+
+  grid.appendChild(card);
+}
+
+// ══════════════════════════════════════════════════════════════
+// ██████  THREE.JS SCENE — Spinning Vinyl
+// ══════════════════════════════════════════════════════════════
+
+let scene, camera, renderer, vinyl, labelMesh;
+let spinSpeed       = 0;
+const TARGET_SPEED  = 0.008; // radians per frame when playing
+let albumTexture    = null;
+
+function initThree() {
+  const container = document.getElementById('canvas-wrap');
+  const W = container.clientWidth;
+  const H = container.clientHeight;
+
+  // Scene + camera
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xf5f0e8);
+
+  camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 100);
+  camera.position.set(0, 2.5, 5.5);
+  camera.lookAt(0, 0, 0);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  container.appendChild(renderer.domElement);
+
+  // Lighting
+  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  scene.add(ambient);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+  dirLight.position.set(5, 8, 5);
+  scene.add(dirLight);
+
+  const fillLight = new THREE.DirectionalLight(0xfff0e0, 0.3);
+  fillLight.position.set(-5, 2, -3);
+  scene.add(fillLight);
+
+  // Create the vinyl record
+  buildVinyl();
+
+  // Resize handler
+  window.addEventListener('resize', () => {
+    const W2 = container.clientWidth;
+    const H2 = container.clientHeight;
+    camera.aspect = W2 / H2;
+    camera.updateProjectionMatrix();
+    renderer.setSize(W2, H2);
+  });
+
+  animate();
+}
+
+function buildVinyl() {
+  // Vinyl group — everything parented here rotates together
+  vinyl = new THREE.Group();
+  scene.add(vinyl);
+
+  // ── Main black disc ──
+  const discGeo = new THREE.CylinderGeometry(2, 2, 0.06, 128, 1);
+  const discMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1a18,
+    roughness: 0.35,
+    metalness: 0.1
+  });
+  const disc = new THREE.Mesh(discGeo, discMat);
+  vinyl.add(disc);
+
+  // ── Groove rings (procedural on top face) ──
+  for (let r = 0.55; r < 1.92; r += 0.045) {
+    const torusGeo = new THREE.TorusGeometry(r, 0.005, 4, 128);
+    const torusMat = new THREE.MeshStandardMaterial({ color: 0x111110, roughness: 0.8 });
+    const torus    = new THREE.Mesh(torusGeo, torusMat);
+    torus.rotation.x = Math.PI / 2;
+    torus.position.y = 0.031;
+    vinyl.add(torus);
+  }
+
+  // ── Center label (album art) ──
+  const labelGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.07, 64, 1);
+  const labelMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.6 });
+  labelMesh = new THREE.Mesh(labelGeo, labelMat);
+  labelMesh.position.y = 0.001;
+  vinyl.add(labelMesh);
+
+  // ── Spindle hole ──
+  const holeGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.1, 32);
+  const holeMat = new THREE.MeshStandardMaterial({ color: 0x333330 });
+  const hole    = new THREE.Mesh(holeGeo, holeMat);
+  hole.position.y = 0.002;
+  vinyl.add(hole);
+
+  // Slight tilt for character
+  vinyl.rotation.x = -0.12;
+}
+
+// Load album art onto the vinyl label
+function loadAlbumArtTexture(imageUrl) {
+  const loader = new THREE.TextureLoader();
+  loader.crossOrigin = 'anonymous';
+  loader.load(imageUrl, texture => {
+    albumTexture = texture;
+    labelMesh.material.map = texture;
+    labelMesh.material.color.set(0xffffff);
+    labelMesh.material.needsUpdate = true;
+  }, undefined, err => {
+    console.warn('Texture load failed:', err);
+  });
+}
+
+// Animation loop
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Smooth speed interpolation
+  const targetSpeed = isPlaying ? TARGET_SPEED : 0;
+  spinSpeed += (targetSpeed - spinSpeed) * 0.035;
+
+  vinyl.rotation.y += spinSpeed;
+
+  renderer.render(scene, camera);
+}
+
+// ══════════════════════════════════════════════════════════════
+// ██████  UI INTERACTION
+// ══════════════════════════════════════════════════════════════
+
+function updatePlayButton() {
+  document.getElementById('play-icon').style.display  = isPlaying ? 'none'  : 'block';
+  document.getElementById('pause-icon').style.display = isPlaying ? 'block' : 'none';
+}
+
+function showToast(msg, duration = 3000) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+
+// Clicking the 3D canvas toggles play/pause
+document.getElementById('scene-container').addEventListener('click', (e) => {
+  // Don't fire if the play button itself was clicked
+  if (e.target.closest('#play-btn')) return;
+  togglePlayback();
+});
+
+document.getElementById('play-btn').addEventListener('click', togglePlayback);
+document.getElementById('login-btn').addEventListener('click', startLogin);
+
+// ══════════════════════════════════════════════════════════════
+// ██████  APP INIT — Entry Point
+// ══════════════════════════════════════════════════════════════
+
+async function initApp(accessToken) {
+  // Hide auth, show app
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app').classList.add('visible');
+
+  // Fetch user profile
+  try {
+    const me = await spotifyFetch('/me');
+    document.getElementById('user-name').textContent = me.display_name || me.id;
+  } catch(e) {}
+
+  // Init Three.js now that canvas is visible
+  initThree();
+
+  // Load album library
+  loadSavedAlbums();
+
+  // Signal token ready to SDK
+  window._tokenReady = true;
+  if (window._sdkReady) initPlayer();
+}
+
+// ── Check URL for OAuth callback code ──
+(async function bootstrap() {
+  const params = new URLSearchParams(window.location.search);
+  const code   = params.get('code');
+  const error  = params.get('error');
+
+  if (error) {
+    showToast('Spotify auth denied: ' + error);
+    return;
+  }
+
+  if (code) {
+    // Coming back from Spotify with an auth code
+    try {
+      const token = await exchangeCodeForToken(code);
+      await initApp(token);
+    } catch (e) {
+      console.error(e);
+      showToast('Login failed — try again');
+    }
+    return;
+  }
+
+  // Check for existing session
+  const existingToken  = sessionStorage.getItem('access_token');
+  const existingExpiry = parseInt(sessionStorage.getItem('token_expiry') || '0');
+
+  if (existingToken && Date.now() < existingExpiry) {
+    await initApp(existingToken);
+    return;
+  }
+
+  // Try silent refresh
+  if (sessionStorage.getItem('refresh_token')) {
+    try {
+      const token = await refreshAccessToken();
+      await initApp(token);
+      return;
+    } catch(e) {
+      console.warn('Silent refresh failed, showing login');
+    }
+  }
+
+  // Show login screen (already visible by default)
+})();
+</script>
+</body>
+</html>
